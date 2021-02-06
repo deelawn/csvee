@@ -84,7 +84,7 @@ func (r *Reader) Read(v interface{}) error {
 				}
 				fieldValue += strings.Join(sliceValues, ",")
 			} else {
-				fieldValue = field
+				fieldValue += field
 			}
 
 			fieldValue += "]"
@@ -123,7 +123,7 @@ func getFieldTypeInfo(t reflect.Type) (fieldType, sliceType reflect.Type, isVali
 		return
 	}
 
-	isValidType = typeIsValid(t)
+	isValidType = typeIsValid(fieldType)
 	return
 }
 
