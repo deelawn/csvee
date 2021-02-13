@@ -41,25 +41,40 @@ func NewReader(r io.Reader, columnNames []string, columnFormats ...map[string]st
 // Read reads the next line of the CSV and puts in into a struct.
 func (r *Reader) Read(v interface{}) error {
 
+	if v == nil {
+		return ErrReadTargetNil
+	}
+
+	jsonRecord, err := r.read(v)
+	if err != nil {
+		return err
+	}
+
+	// Try to Unmarshal it to the provided interface
+	return json.Unmarshal([]byte(jsonRecord), v)
+}
+
+func (r *Reader) read(v interface{}) (string, error) {
+
 	// The easiest way to convert a CSV line to a struct is to label the fields and utilize the
 	// parser in encoding/json.
 
 	// This handles any CSV read errors we might encounter.
 	record, err := r.CSVReader.Read()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// It is possible to define behavior so that it processes as many fields as possible until one
 	// of the two slices reaches its limit, but it isn't clear how that might work.
 	if len(record) != len(r.ColumnNames) {
-		return ErrColumnNamesMismatch
+		return "", ErrColumnNamesMismatch
 	}
 
 	// v's type needs to be a struct or a map
 	vType := getBaseType(reflect.TypeOf(v))
 	if vType.Kind() != reflect.Struct && vType.Kind() != reflect.Map {
-		return ErrUnsupportedTargetType
+		return "", ErrUnsupportedTargetType
 	}
 
 	labeledFields := make([]string, len(record))
@@ -73,7 +88,7 @@ func (r *Reader) Read(v interface{}) error {
 
 		fieldType, fieldSliceType, isValidType := getFieldTypeInfo(structField.Type)
 		if !isValidType {
-			return ErrInvalidFieldType
+			return "", ErrInvalidFieldType
 		}
 
 		fieldValue := field
@@ -83,7 +98,7 @@ func (r *Reader) Read(v interface{}) error {
 			fieldValue = `"` + fieldValue + `"`
 		} else if isTimeType(fieldType) {
 			if fieldValue, err = r.parseTime(field, i); err != nil {
-				return err
+				return "", err
 			}
 			fieldValue = `"` + fieldValue + `"`
 		}
@@ -91,7 +106,7 @@ func (r *Reader) Read(v interface{}) error {
 		// If it is a slice then assign the json array representation to fieldValue
 		if fieldSliceType != nil {
 			if fieldValue, err = r.buildSliceFieldValue(fieldSliceType, field, i); err != nil {
-				return err
+				return "", err
 			}
 		}
 
@@ -99,10 +114,99 @@ func (r *Reader) Read(v interface{}) error {
 	}
 
 	// Build the JSON
-	jsonRecord := []byte("{" + strings.Join(labeledFields, ",") + "}")
+	return "{" + strings.Join(labeledFields, ",") + "}", nil
+}
 
-	// Try to Unmarshal it to the provided interface
-	return json.Unmarshal(jsonRecord, v)
+// Read reads all the lines of the CSV and puts in into a slice of structs.
+func (r *Reader) ReadAll(v interface{}) error {
+
+	// Borrowed this method of dynamically building slice of an arbitrary type the repo at:
+	// github.com/jmoiron/sqlx
+	//
+	// Specifically the `scanAll` function in sqlx.go.
+
+	deref := func(t reflect.Type) reflect.Type {
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		return t
+	}
+
+	var rv, rvp reflect.Value
+
+	value := reflect.ValueOf(v)
+	if value.Kind() != reflect.Ptr {
+		return ErrReadAllNotSlicePointer
+	}
+	if value.IsNil() {
+		return ErrReadTargetNil
+	}
+
+	direct := reflect.Indirect(value)
+
+	slice := deref(value.Type())
+	if slice.Kind() != reflect.Slice {
+		return ErrReadAllNotSlicePointer
+	}
+
+	isPtr := slice.Elem().Kind() == reflect.Ptr
+	base := deref(slice.Elem())
+
+	var streamParseError error
+	stream := newStringStreamReader()
+	defer close(stream.stream)
+
+	go func() {
+
+		for {
+
+			nextJSON, err := r.read(reflect.New(base).Interface())
+			if nextJSON == "" && err == io.EOF {
+				stream.Stream("") // an empty string signals all lines have been read
+				break
+			}
+
+			if err != nil {
+				streamParseError = err
+				break
+			}
+
+			stream.Stream(nextJSON)
+		}
+	}()
+
+	// Decode one line at a time. dec.More() will block while it waits for the next item in the stream
+	// and will return false once io.EOF is read, triggered by writing the empty string, "", to the stream.
+	dec := json.NewDecoder(stream)
+	for dec.More() {
+
+		if streamParseError != nil {
+			break
+		}
+
+		// Initialize the new instance of the base type
+		rvp = reflect.New(base)
+		rv = reflect.Indirect(rvp)
+
+		// Decode it into the struct
+		err := dec.Decode(rvp.Interface())
+		if err != nil {
+			return err
+		}
+
+		// Append it to the slice
+		if isPtr {
+			direct.Set(reflect.Append(direct, rvp))
+		} else {
+			direct.Set(reflect.Append(direct, rv))
+		}
+	}
+
+	if streamParseError != nil {
+		return streamParseError
+	}
+
+	return nil
 }
 
 func (r *Reader) parseTime(field string, column int) (string, error) {

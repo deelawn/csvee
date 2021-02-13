@@ -114,3 +114,76 @@ func TestReader_Read(t *testing.T) {
 }
 
 // TestReader_ReadAll reads from a Reader and verifies the resulting struct slice is as expected
+func TestReader_ReadAll(t *testing.T) {
+
+	var intPtr *int = new(int)
+	*intPtr = 9
+
+	var testCases = []struct {
+		name            string
+		inData          string
+		inColumnNames   []string
+		inColumnFormats map[string]string
+		expData         []readTo
+		expErr          bool
+		expErrText      string
+	}{
+		{
+			name:            "success",
+			inData:          `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
+			inColumnNames:   []string{"F", "I", "B", "S", "IP", "IA", "SA", "Tu", "T"},
+			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
+			expData: []readTo{
+				{
+					F:  29.4,
+					I:  3,
+					B:  true,
+					S:  `hello "you"`,
+					IP: intPtr,
+					IA: []int{8, 4, 3, 5},
+					SA: []string{"this", "is", "not", "a", "test"},
+					Tu: time.Unix(1613235342, 0),
+					T:  time.Date(1991, time.April, 5, 11, 11, 11, 0, time.UTC),
+				},
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+
+			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames, tt.inColumnFormats)
+			actualData := []readTo{}
+			err := reader.ReadAll(&actualData)
+
+			// Hard stop if the expectation of an error isn't fulfilled.
+			require.Equal(t, tt.expErr, err != nil, err)
+			if err != nil {
+				assert.Equal(t, tt.expErrText, err.Error())
+				return
+			}
+
+			require.Len(t, actualData, 1)
+
+			assert.Equal(t, tt.expData[0].F, actualData[0].F)
+			assert.Equal(t, tt.expData[0].I, actualData[0].I)
+			assert.Equal(t, tt.expData[0].B, actualData[0].B)
+			assert.Equal(t, tt.expData[0].S, actualData[0].S)
+
+			if tt.expData[0].IP != nil {
+				assert.NotNil(t, actualData[0].IP)
+				if actualData[0].IP != nil {
+					assert.Equal(t, *tt.expData[0].IP, *actualData[0].IP)
+				}
+			} else {
+				assert.Nil(t, actualData[0].IP)
+			}
+
+			assert.Exactly(t, tt.expData[0].IA, actualData[0].IA)
+			assert.Exactly(t, tt.expData[0].SA, actualData[0].SA)
+			assert.Equal(t, tt.expData[0].Tu.Unix(), actualData[0].Tu.Unix())
+			assert.Equal(t, tt.expData[0].T.Unix(), actualData[0].T.Unix())
+		})
+	}
+
+}
