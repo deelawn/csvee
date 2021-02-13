@@ -3,6 +3,7 @@ package csvee
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,8 +16,18 @@ func TestNewReader(t *testing.T) {
 
 	reader := NewReader(strings.NewReader("a,b,c"), columnNames)
 
-	assert.NotNil(t, reader)
+	// Test without column formats
+	require.NotNil(t, reader)
 	assert.Exactly(t, columnNames, reader.ColumnNames)
+
+	reader = NewReader(strings.NewReader("a,b,c"), columnNames, map[string]string{"1": "a", "2": "b"})
+
+	// Test with column formats
+	require.NotNil(t, reader)
+	assert.Exactly(t, columnNames, reader.ColumnNames)
+	require.NotNil(t, reader.ColumnFormats)
+	assert.Equal(t, "a", reader.ColumnFormats["1"])
+	assert.Equal(t, "b", reader.ColumnFormats["2"])
 }
 
 type readTo struct {
@@ -27,6 +38,8 @@ type readTo struct {
 	IP *int
 	IA []int
 	SA []string
+	Tu time.Time
+	T  time.Time
 }
 
 // TestReader_Read reads from a Reader and verifies the resulting struct is as expected
@@ -36,17 +49,19 @@ func TestReader_Read(t *testing.T) {
 	*intPtr = 9
 
 	var testCases = []struct {
-		name          string
-		inData        string
-		inColumnNames []string
-		expData       readTo
-		expErr        bool
-		expErrText    string
+		name            string
+		inData          string
+		inColumnNames   []string
+		inColumnFormats map[string]string
+		expData         readTo
+		expErr          bool
+		expErrText      string
 	}{
 		{
-			name:          "success",
-			inData:        `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test"`,
-			inColumnNames: []string{"F", "I", "B", "S", "IP", "IA", "SA"},
+			name:            "success",
+			inData:          `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
+			inColumnNames:   []string{"F", "I", "B", "S", "IP", "IA", "SA", "Tu", "T"},
+			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
 			expData: readTo{
 				F:  29.4,
 				I:  3,
@@ -55,6 +70,8 @@ func TestReader_Read(t *testing.T) {
 				IP: intPtr,
 				IA: []int{8, 4, 3, 5},
 				SA: []string{"this", "is", "not", "a", "test"},
+				Tu: time.Unix(1613235342, 0),
+				T:  time.Date(1991, time.April, 5, 11, 11, 11, 0, time.UTC),
 			},
 		},
 	}
@@ -62,7 +79,7 @@ func TestReader_Read(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 
-			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames)
+			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames, tt.inColumnFormats)
 			var actualData readTo
 			err := reader.Read(&actualData)
 
@@ -89,6 +106,8 @@ func TestReader_Read(t *testing.T) {
 
 			assert.Exactly(t, tt.expData.IA, actualData.IA)
 			assert.Exactly(t, tt.expData.SA, actualData.SA)
+			assert.Equal(t, tt.expData.Tu.Unix(), actualData.Tu.Unix())
+			assert.Equal(t, tt.expData.T.Unix(), actualData.T.Unix())
 		})
 	}
 

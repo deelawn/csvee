@@ -5,24 +5,36 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Reader embeds *csv.Reader and contains the column names of the CSV data that is to be read.
 type Reader struct {
-	CSVReader   *csv.Reader
-	ColumnNames []string
+	CSVReader     *csv.Reader
+	ColumnNames   []string
+	ColumnFormats map[string]string
 }
 
 // NewReader returns a new Reader that reads from r.
-func NewReader(r io.Reader, columnNames []string) *Reader {
+func NewReader(r io.Reader, columnNames []string, columnFormats ...map[string]string) *Reader {
 
 	columnNamesCopy := make([]string, len(columnNames))
 	_ = copy(columnNamesCopy, columnNames)
 
+	lvColumnFormats := make(map[string]string)
+	if columnFormats != nil {
+		// Make a copy of whatever is passed in.
+		for k, v := range columnFormats[0] {
+			lvColumnFormats[k] = v
+		}
+	}
+
 	return &Reader{
-		CSVReader:   csv.NewReader(r),
-		ColumnNames: columnNamesCopy,
+		CSVReader:     csv.NewReader(r),
+		ColumnNames:   columnNamesCopy,
+		ColumnFormats: lvColumnFormats,
 	}
 }
 
@@ -69,25 +81,18 @@ func (r *Reader) Read(v interface{}) error {
 		if fieldType.Kind() == reflect.String {
 			fieldValue = strings.ReplaceAll(field, `"`, `\"`)
 			fieldValue = `"` + fieldValue + `"`
+		} else if isTimeType(fieldType) {
+			if fieldValue, err = r.parseTime(field, i); err != nil {
+				return err
+			}
+			fieldValue = `"` + fieldValue + `"`
 		}
 
 		// If it is a slice then assign the json array representation to fieldValue
 		if fieldSliceType != nil {
-
-			fieldValue = "["
-
-			// Quote each value in the slice in the case of strings
-			if fieldSliceType.Kind() == reflect.String {
-				sliceValues := strings.Split(field, ",")
-				for i := 0; i < len(sliceValues); i++ {
-					sliceValues[i] = `"` + sliceValues[i] + `"`
-				}
-				fieldValue += strings.Join(sliceValues, ",")
-			} else {
-				fieldValue += field
+			if fieldValue, err = r.buildSliceFieldValue(fieldSliceType, field, i); err != nil {
+				return err
 			}
-
-			fieldValue += "]"
 		}
 
 		labeledFields[i] = `"` + r.ColumnNames[i] + `":` + fieldValue
@@ -98,6 +103,68 @@ func (r *Reader) Read(v interface{}) error {
 
 	// Try to Unmarshal it to the provided interface
 	return json.Unmarshal(jsonRecord, v)
+}
+
+func (r *Reader) parseTime(field string, column int) (string, error) {
+
+	// First check whether a format was defined this time column
+	format, exists := r.ColumnFormats[r.ColumnNames[column]]
+	if !exists {
+		// If no format exists, assume the string is formatted correctly as the default RFC3339 format
+		return field, nil
+	}
+
+	var tm time.Time
+
+	// Parse out income time strings from unix or other formats to time.Time
+	if format == TimeFormatUnix {
+
+		intField, err := strconv.ParseInt(field, 10, 0)
+		if err != nil {
+			return "", err
+		}
+
+		tm = time.Unix(intField, 0)
+
+	} else {
+
+		var err error
+		if tm, err = time.Parse(format, field); err != nil {
+			return "", err
+		}
+	}
+
+	// Output times in RFC3339 format
+	return tm.Format(time.RFC3339), nil
+}
+
+func (r *Reader) buildSliceFieldValue(t reflect.Type, field string, column int) (string, error) {
+
+	fieldValue := "["
+
+	if t.Kind() == reflect.String {
+		sliceValues := strings.Split(field, ",")
+		for i := 0; i < len(sliceValues); i++ {
+			sliceValues[i] = `"` + sliceValues[i] + `"`
+		}
+		fieldValue += strings.Join(sliceValues, ",")
+	} else if isTimeType(t) {
+		sliceValues := strings.Split(field, ",")
+		for i := 0; i < len(sliceValues); i++ {
+			value, err := r.parseTime(sliceValues[i], column)
+			if err != nil {
+				return "", err
+			}
+			sliceValues[i] = `"` + value + `"`
+		}
+		fieldValue += strings.Join(sliceValues, ",")
+	} else {
+		fieldValue += field
+	}
+
+	fieldValue += "]"
+
+	return fieldValue, nil
 }
 
 func getBaseType(t reflect.Type) reflect.Type {
