@@ -129,8 +129,9 @@ func TestReader_ReadAll(t *testing.T) {
 		expErrText      string
 	}{
 		{
-			name:            "success",
-			inData:          `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
+			name: "success",
+			inData: `+
+				29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
 			inColumnNames:   []string{"F", "I", "B", "S", "IP", "IA", "SA", "Tu", "T"},
 			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
 			expData: []readTo{
@@ -153,6 +154,8 @@ func TestReader_ReadAll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames, tt.inColumnFormats)
+			reader.CSVReader.TrimLeadingSpace = true
+			reader.CSVReader.Comment = '+'
 			actualData := []readTo{}
 			err := reader.ReadAll(&actualData)
 

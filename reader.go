@@ -158,11 +158,13 @@ func (r *Reader) ReadAll(v interface{}) error {
 
 	go func() {
 
+		// an empty string signals not to read from this channel any more
+		defer stream.Stream("")
+
 		for {
 
 			nextJSON, err := r.read(reflect.New(base).Interface())
 			if nextJSON == "" && err == io.EOF {
-				stream.Stream("") // an empty string signals all lines have been read
 				break
 			}
 
