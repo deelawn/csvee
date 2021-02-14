@@ -16,6 +16,7 @@ func newStringStreamReader() *stringStreamReader {
 	}
 }
 
+// Read populates buffer p with the next string from the stream.
 func (ssr *stringStreamReader) Read(p []byte) (n int, err error) {
 
 	nextString := <-ssr.stream
@@ -29,7 +30,14 @@ func (ssr *stringStreamReader) Read(p []byte) (n int, err error) {
 	return strings.NewReader(nextString).Read(p)
 }
 
+// Stream writes a string to the channel.
 func (ssr *stringStreamReader) Stream(s string) {
 
 	ssr.stream <- s
+}
+
+// Close will close the stream channel.
+func (ssr *stringStreamReader) Close() {
+
+	close(ssr.stream)
 }

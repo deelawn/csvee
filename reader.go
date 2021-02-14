@@ -117,7 +117,7 @@ func (r *Reader) read(v interface{}) (string, error) {
 	return "{" + strings.Join(labeledFields, ",") + "}", nil
 }
 
-// Read reads all the lines of the CSV and puts in into a slice of structs.
+// ReadAll reads all the lines of the CSV and puts in into a slice of structs.
 func (r *Reader) ReadAll(v interface{}) error {
 
 	// Borrowed this method of dynamically building slice of an arbitrary type the repo at:
@@ -154,8 +154,9 @@ func (r *Reader) ReadAll(v interface{}) error {
 
 	var streamParseError error
 	stream := newStringStreamReader()
-	defer close(stream.stream)
+	defer stream.Close()
 
+	// Read one line at a time and write it to the stream
 	go func() {
 
 		// an empty string signals not to read from this channel any more
@@ -204,11 +205,7 @@ func (r *Reader) ReadAll(v interface{}) error {
 		}
 	}
 
-	if streamParseError != nil {
-		return streamParseError
-	}
-
-	return nil
+	return streamParseError
 }
 
 func (r *Reader) parseTime(field string, column int) (string, error) {
