@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 // Reader embeds *csv.Reader and contains the column names of the CSV data that is to be read.
@@ -17,25 +19,77 @@ type Reader struct {
 	ColumnFormats map[string]string
 }
 
-// NewReader returns a new Reader that reads from r.
-func NewReader(r io.Reader, columnNames []string, columnFormats ...map[string]string) *Reader {
+// ReaderOptions can be provided to the Reader constructor.
+type ReaderOptions struct {
+	ReadHeaders   bool
+	ColumnNames   []string
+	ColumnFormats map[string]string
+}
 
-	columnNamesCopy := make([]string, len(columnNames))
-	_ = copy(columnNamesCopy, columnNames)
+// NewReader returns a new Reader that reads from r.
+func NewReader(
+	r io.Reader,
+	options ...*ReaderOptions,
+) (*Reader, error) {
+
+	rOptions := options[0]
 
 	lvColumnFormats := make(map[string]string)
-	if columnFormats != nil {
+	if rOptions.ColumnFormats != nil {
 		// Make a copy of whatever is passed in.
-		for k, v := range columnFormats[0] {
+		for k, v := range rOptions.ColumnFormats {
 			lvColumnFormats[k] = v
 		}
 	}
 
-	return &Reader{
+	reader := &Reader{
 		CSVReader:     csv.NewReader(r),
-		ColumnNames:   columnNamesCopy,
 		ColumnFormats: lvColumnFormats,
 	}
+
+	err := reader.determineReaderColumnNames(rOptions.ColumnNames, rOptions.ReadHeaders)
+	if err != nil {
+		return nil, err
+	}
+
+	return reader, nil
+}
+
+func (r *Reader) determineReaderColumnNames(columnNames []string, readheaders bool) error {
+
+	// readHeaders trumps any columnNames that have been provided
+
+	if !readheaders {
+		columnNamesCopy := make([]string, len(columnNames))
+		_ = copy(columnNamesCopy, columnNames)
+		r.ColumnNames = columnNamesCopy
+		return nil
+	}
+
+	// Read the first line of the file and use the data there to set the column names
+	cols, err := r.CSVReader.Read()
+	if err != nil {
+		return errors.Wrap(err, "Could not read CSV headers")
+	}
+
+	// Remove any leading or trailing quotes.
+	columnNamesCopy := make([]string, len(cols))
+	for i, c := range cols {
+		colName := c
+		if colName[0] == '"' || colName[0] == '\'' {
+			colName = colName[1:]
+		}
+
+		lastIndex := len(colName) - 1
+		if c[lastIndex] == '"' || colName[lastIndex] == '\'' {
+			colName = colName[:lastIndex]
+		}
+
+		columnNamesCopy[i] = colName
+	}
+
+	r.ColumnNames = columnNamesCopy
+	return nil
 }
 
 // Read reads the next line of the CSV and puts in into a struct.

@@ -14,16 +14,24 @@ func TestNewReader(t *testing.T) {
 
 	columnNames := []string{"1", "2", "3"}
 
-	reader := NewReader(strings.NewReader("a,b,c"), columnNames)
+	reader, err := NewReader(strings.NewReader("a,b,c"), &ReaderOptions{ColumnNames: columnNames})
 
 	// Test without column formats
 	require.NotNil(t, reader)
+	require.NoError(t, err)
 	assert.Exactly(t, columnNames, reader.ColumnNames)
 
-	reader = NewReader(strings.NewReader("a,b,c"), columnNames, map[string]string{"1": "a", "2": "b"})
+	reader, err = NewReader(
+		strings.NewReader("a,b,c"),
+		&ReaderOptions{
+			ColumnNames:   columnNames,
+			ColumnFormats: map[string]string{"1": "a", "2": "b"},
+		},
+	)
 
 	// Test with column formats
 	require.NotNil(t, reader)
+	require.NoError(t, err)
 	assert.Exactly(t, columnNames, reader.ColumnNames)
 	require.NotNil(t, reader.ColumnFormats)
 	assert.Equal(t, "a", reader.ColumnFormats["1"])
@@ -79,9 +87,18 @@ func TestReader_Read(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 
-			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames, tt.inColumnFormats)
+			reader, err := NewReader(
+				strings.NewReader(tt.inData),
+				&ReaderOptions{
+					ColumnNames:   tt.inColumnNames,
+					ColumnFormats: tt.inColumnFormats,
+				},
+			)
+
+			require.NoError(t, err)
+
 			var actualData readTo
-			err := reader.Read(&actualData)
+			err = reader.Read(&actualData)
 
 			// Hard stop if the expectation of an error isn't fulfilled.
 			require.Equal(t, tt.expErr, err != nil, err)
@@ -165,11 +182,20 @@ func TestReader_ReadAll(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 
-			reader := NewReader(strings.NewReader(tt.inData), tt.inColumnNames, tt.inColumnFormats)
+			reader, err := NewReader(
+				strings.NewReader(tt.inData),
+				&ReaderOptions{
+					ColumnNames:   tt.inColumnNames,
+					ColumnFormats: tt.inColumnFormats,
+				},
+			)
+
+			require.NoError(t, err)
+
 			reader.CSVReader.TrimLeadingSpace = true
 			reader.CSVReader.Comment = '+'
 			actualData := []readTo{}
-			err := reader.ReadAll(&actualData)
+			err = reader.ReadAll(&actualData)
 
 			// Hard stop if the expectation of an error isn't fulfilled.
 			require.Equal(t, tt.expErr, err != nil, err)
