@@ -61,6 +61,7 @@ func TestReader_Read(t *testing.T) {
 		inData          string
 		inColumnNames   []string
 		inColumnFormats map[string]string
+		inReadHeaders   bool
 		expData         readTo
 		expErr          bool
 		expErrText      string
@@ -70,6 +71,24 @@ func TestReader_Read(t *testing.T) {
 			inData:          `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
 			inColumnNames:   []string{"F", "I", "B", "S", "IP", "IA", "SA", "Tu", "T"},
 			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
+			expData: readTo{
+				F:  29.4,
+				I:  3,
+				B:  true,
+				S:  `hello "you"`,
+				IP: intPtr,
+				IA: []int{8, 4, 3, 5},
+				SA: []string{"this", "is", "not", "a", "test"},
+				Tu: time.Unix(1613235342, 0),
+				T:  time.Date(1991, time.April, 5, 11, 11, 11, 0, time.UTC),
+			},
+		},
+		{
+			name: "success reading headers",
+			inData: "F,I,B,S,IP,IA,SA,Tu,T\n" +
+				`29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z`,
+			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
+			inReadHeaders:   true,
 			expData: readTo{
 				F:  29.4,
 				I:  3,
@@ -92,6 +111,7 @@ func TestReader_Read(t *testing.T) {
 				&ReaderOptions{
 					ColumnNames:   tt.inColumnNames,
 					ColumnFormats: tt.inColumnFormats,
+					ReadHeaders:   tt.inReadHeaders,
 				},
 			)
 
@@ -147,6 +167,7 @@ func TestReader_ReadAll(t *testing.T) {
 	}{
 		{
 			name: "success",
+			// + here is used purely for formatting. See below: reader.CSVReader.Comment = '+'
 			inData: `+
 				29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z
 				999.12,4,false,lorem ipsum...,9,"-9,3","this,might,be,a,test",1513235342,2007-05-27T15:00:00-05:00`,
