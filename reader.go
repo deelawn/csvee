@@ -131,7 +131,7 @@ func (r *Reader) read(v interface{}) (string, error) {
 		return "", ErrUnsupportedTargetType
 	}
 
-	labeledFields := make([]string, len(record))
+	labeledFields := []string{}
 	for i, field := range record {
 
 		// Get the struct field; skip this field if it doesn't exist in the struct.
@@ -155,16 +155,18 @@ func (r *Reader) read(v interface{}) (string, error) {
 				return "", err
 			}
 			fieldValue = `"` + fieldValue + `"`
-		}
-
-		// If it is a slice then assign the json array representation to fieldValue
-		if fieldSliceType != nil {
+			// If it is a slice then assign the json array representation to fieldValue
+		} else if fieldSliceType != nil {
 			if fieldValue, err = r.buildSliceFieldValue(fieldSliceType, field, i); err != nil {
 				return "", err
 			}
+			// If this string is blank for a type other than what we've checked so far, then don't add
+			// it to our json object. Just ignore it and let it assume the default value of the struct.
+		} else if strings.TrimSpace(fieldValue) == "" {
+			continue
 		}
 
-		labeledFields[i] = `"` + r.ColumnNames[i] + `":` + fieldValue
+		labeledFields = append(labeledFields, `"`+r.ColumnNames[i]+`":`+fieldValue)
 	}
 
 	// Build the JSON
