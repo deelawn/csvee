@@ -38,7 +38,12 @@ func TestNewReader(t *testing.T) {
 	assert.Equal(t, "b", reader.ColumnFormats["2"])
 }
 
+type nestedReadTo struct {
+	NS string
+}
+
 type readTo struct {
+	nestedReadTo
 	F  float64
 	I  int
 	B  bool
@@ -81,6 +86,24 @@ func TestReader_Read(t *testing.T) {
 				SA: []string{"this", "is", "not", "a", "test"},
 				Tu: time.Unix(1613235342, 0),
 				T:  time.Date(1991, time.April, 5, 11, 11, 11, 0, time.UTC),
+			},
+		},
+		{
+			name:            "nested",
+			inData:          `29.4,3,true,"hello ""you""",9,"8,4,3,5","this,is,not,a,test",1613235342,1991-04-05T11:11:11Z,"this is nested"`,
+			inColumnNames:   []string{"F", "I", "B", "S", "IP", "IA", "SA", "Tu", "T", "NS"},
+			inColumnFormats: map[string]string{"Tu": TimeFormatUnix},
+			expData: readTo{
+				F:            29.4,
+				I:            3,
+				B:            true,
+				S:            `hello "you"`,
+				IP:           intPtr,
+				IA:           []int{8, 4, 3, 5},
+				SA:           []string{"this", "is", "not", "a", "test"},
+				Tu:           time.Unix(1613235342, 0),
+				T:            time.Date(1991, time.April, 5, 11, 11, 11, 0, time.UTC),
+				nestedReadTo: nestedReadTo{NS: "this is nested"},
 			},
 		},
 		{
@@ -179,6 +202,7 @@ func TestReader_Read(t *testing.T) {
 			assert.Exactly(t, tt.expData.SA, actualData.SA)
 			assert.Equal(t, tt.expData.Tu.Unix(), actualData.Tu.Unix())
 			assert.Equal(t, tt.expData.T.Unix(), actualData.T.Unix())
+			assert.Equal(t, tt.expData.nestedReadTo.NS, actualData.nestedReadTo.NS)
 		})
 	}
 
